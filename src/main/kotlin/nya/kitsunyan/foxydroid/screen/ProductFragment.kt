@@ -1,10 +1,14 @@
 package nya.kitsunyan.foxydroid.screen
 
 import android.app.AlertDialog
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageInstaller.SessionParams
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -13,6 +17,7 @@ import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import android.widget.Toolbar
 import androidx.fragment.app.DialogFragment
 import androidx.recyclerview.widget.GridLayoutManager
@@ -36,6 +41,8 @@ import nya.kitsunyan.foxydroid.utility.RxUtils
 import nya.kitsunyan.foxydroid.utility.Utils
 import nya.kitsunyan.foxydroid.utility.extension.android.*
 import nya.kitsunyan.foxydroid.widget.DividerItemDecoration
+import java.io.IOException
+import java.io.InputStream
 
 class ProductFragment(): ScreenFragment(), ProductAdapter.Callbacks {
   companion object {
@@ -365,6 +372,7 @@ class ProductFragment(): ScreenFragment(), ProductAdapter.Callbacks {
       }
       ProductAdapter.Action.UNINSTALL -> {
         // TODO Handle deprecation
+        //uninstallApp(packageName)
         @Suppress("DEPRECATION")
         startActivity(Intent(Intent.ACTION_UNINSTALL_PACKAGE)
           .setData(Uri.parse("package:$packageName")))
@@ -377,6 +385,21 @@ class ProductFragment(): ScreenFragment(), ProductAdapter.Callbacks {
         Unit
       }
     }::class
+  }
+
+
+  private fun uninstallApp(packageName: String){
+    val pm: PackageManager? = activity?.getPackageManager()
+    val packageInstaller = pm?.packageInstaller
+    pm?.setInstallerPackageName(packageName, context?.getPackageName())
+    // Create a PendingIntent and use it to generate the IntentSender
+    val broadcastIntent = Intent("""${context?.packageName}.UNINSTALL""")
+    val pendingIntent = PendingIntent.getBroadcast(
+            context,  // context
+            0,  // arbitary
+            broadcastIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT)
+    packageInstaller?.uninstall(packageName, pendingIntent.intentSender)
   }
 
   private fun startLauncherActivity(name: String) {

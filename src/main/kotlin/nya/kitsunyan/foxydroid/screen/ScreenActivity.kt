@@ -1,7 +1,10 @@
 package nya.kitsunyan.foxydroid.screen
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Parcel
@@ -9,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import android.widget.Toast
 import android.widget.Toolbar
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
@@ -21,6 +25,8 @@ import nya.kitsunyan.foxydroid.utility.Utils
 import nya.kitsunyan.foxydroid.utility.extension.android.*
 import nya.kitsunyan.foxydroid.utility.extension.resources.*
 import nya.kitsunyan.foxydroid.utility.extension.text.*
+import java.io.IOException
+import java.io.InputStream
 
 abstract class ScreenActivity: FragmentActivity() {
   companion object {
@@ -229,16 +235,67 @@ abstract class ScreenActivity: FragmentActivity() {
     }
   }
 
+
+  public fun closeQuietly(closeable: AutoCloseable?) {
+    if (closeable != null) {
+      try {
+        closeable.close()
+      } catch (rethrown: RuntimeException) {
+        throw rethrown
+      } catch (ignored: Exception) {
+      }
+    }
+  }
+
+  private fun doPackageStage(packageURI: Uri) {
+    val pm: PackageManager = applicationContext.getPackageManager()!!
+    val params = PackageInstaller.SessionParams(
+            PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+    val packageInstaller = pm.packageInstaller
+    var session: PackageInstaller.Session? = null
+    try {
+      val sessionId = packageInstaller.createSession(params)
+      val buffer = ByteArray(65536)
+      session = packageInstaller.openSession(sessionId)
+      val inputStream: InputStream = applicationContext.getContentResolver().openInputStream(packageURI)!!
+      val out = session.openWrite("PackageInstaller", 0, -1 /* sizeBytes, unknown */)
+      try {
+        var c: Int
+        while (inputStream.read(buffer).also { c = it } != -1) {
+          out.write(buffer, 0, c)
+        }
+        session.fsync(out)
+      } finally {
+        closeQuietly(inputStream)
+        closeQuietly(out)
+      }
+      // Create a PendingIntent and use it to generate the IntentSender
+      val broadcastIntent = Intent(applicationContext.packageName+".BROADCAST_ACTION_INSTALL")
+      val pendingIntent = PendingIntent.getBroadcast(
+              applicationContext /*context*/,
+              sessionId,
+              broadcastIntent,
+              PendingIntent.FLAG_UPDATE_CURRENT)
+      session.commit(pendingIntent.intentSender)
+    } catch (e: IOException) {
+      e.printStackTrace()
+      Toast.makeText(applicationContext, e.localizedMessage, Toast.LENGTH_LONG).show()
+    } finally {
+      closeQuietly(session)
+    }
+  }
+
   internal fun startPackageInstaller(cacheFileName: String) {
     val (uri, flags) = if (Android.sdk(24)) {
       Pair(Cache.getReleaseUri(this, cacheFileName), Intent.FLAG_GRANT_READ_URI_PERMISSION)
     } else {
       Pair(Uri.fromFile(Cache.getReleaseFile(this, cacheFileName)), 0)
     }
+    doPackageStage(uri)
     // TODO Handle deprecation
-    @Suppress("DEPRECATION")
-    startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE)
-      .setDataAndType(uri, "application/vnd.android.package-archive").setFlags(flags))
+    //@Suppress("DEPRECATION")
+    //startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE)
+    //  .setDataAndType(uri, "application/vnd.android.package-archive").setFlags(flags))
   }
 
   internal fun navigateProduct(packageName: String) = pushFragment(ProductFragment(packageName))
